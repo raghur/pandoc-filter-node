@@ -20,13 +20,17 @@
  *
  * @param  {Function} action Callback to apply to every object
  */
+
+var Q = require('q');
 function toJSONFilter(action) {
 	require('get-stdin')(function (json) {
     var data = JSON.parse(json);
     var format = (process.argv.length > 2 ? process.argv[2] : '');
     var output = filter(data, action, format);
-    process.stdout.write(JSON.stringify(output));
-	});
+    Q.when(output, function(o) {
+        process.stdout.write(JSON.stringify(o));
+    });
+    });
 }
 
 /**
@@ -50,30 +54,36 @@ function walk(x, action, format, meta) {
     x.forEach(function (item) {
       if (item === Object(item) && item.t) {
         var res = action(item.t, item.c, format, meta);
-        if (!res) {
-          array.push(walk(item, action, format, meta));
-        }
-        else if (Array.isArray(res)) {
-          res.forEach(function (z) {
-            array.push(walk(z, action, format, meta));
-          });
-        }
-        else {
-          array.push(walk(res, action, format, meta));
-        }
+        Q.when(res, function(v) {
+            if (!v) {
+                array.push(walk(item, action, format, meta));
+            }
+            else if (Array.isArray(v)) {
+                v.forEach(function (z) {
+                    array.push(walk(z, action, format, meta));
+                });
+            }
+            else {
+                array.push(walk(v, action, format, meta));
+            }
+        });
       }
       else {
-        array.push(walk(item, action, format, meta));
+          Q.when(item, function(v) {
+              array.push(walk(v, action, format, meta));
+          });
       }
     });
-    return array;
+    return Q.all(array);
   }
   else if (x === Object(x)) {
-    var obj = {};
-    Object.keys(x).forEach(function (k) {
-      obj[k] = walk(x[k], action, format, meta);
-    });
-    return obj;
+      Q.when(x, function(v) {
+          var obj = {};
+          Object.keys(v).forEach(function (k) {
+              obj[k] = walk(v[k], action, format, meta);
+          });
+          return obj;
+      })
   }
   return x;
 }
